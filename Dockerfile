@@ -1,6 +1,6 @@
 FROM ubuntu:15.10
 
-MAINTAINER Test
+MAINTAINER a.naberezhnyi
 
 # Обвновление списка пакетов
 RUN apt-get -y update
@@ -61,4 +61,4 @@ EXPOSE 5000
 #
 # Запускаем PostgreSQL и сервер
 #
-CMD service postgresql start && java -Xmx300M -Xmx300M -jar $WORK/TechnoparkDBForumAPI/target/dbapi-1.0-SNAPSHOT.jar
+CMD service postgresql start && java -Xmx300M -Xmx300M -jar $WORK/dbapi/target/dbapi-1.0-SNAPSHOT.jar
