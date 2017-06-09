@@ -13,7 +13,6 @@ public class Status {
     @JsonProperty
     private int post;
 
-
     @JsonCreator
     public Status(@JsonProperty("user") int user, @JsonProperty("forum") int forum,
                   @JsonProperty("thread") int thread, @JsonProperty("post") int post){

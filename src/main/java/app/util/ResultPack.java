@@ -1,10 +1,10 @@
-package app.models;
+package app.util;
 
 
-public class ServiceAnswer<T> {
+public class ResultPack<T> {
     private int errorCode;
     private T data;
-    public ServiceAnswer(T data, int errorCode) {
+    public ResultPack(T data, int errorCode) {
         this.data = data;
         this.errorCode = errorCode;
     }

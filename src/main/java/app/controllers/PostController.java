@@ -16,7 +16,6 @@ import java.util.Set;
 
 
 @RestController
-@RequestMapping(path = "/api/post")
 public class PostController {
 
     final private ForumService forumService;
@@ -32,7 +31,7 @@ public class PostController {
         this.postService = postService;
     }
 
-    @RequestMapping(path = "/{id}/details", method = RequestMethod.GET)
+    @RequestMapping(path = "/api/post/{id}/details", method = RequestMethod.GET)
     public ResponseEntity detailsPost(@PathVariable(name = "id") int id,
                                       @RequestParam(name = "related", required = false) Set<String> related){
 
@@ -44,13 +43,13 @@ public class PostController {
 
         if(related != null){
             if(related.contains("user")){
-                postFull.setAuthor(userService.getUserByNick(postFull.getPost().getAuthor()));
+                postFull.setAuthor(userService.getUserByNickname(postFull.getPost().getAuthor()));
                 if(postFull.getAuthor() == null){
                     return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
                 }
             }
             if(related.contains("forum")){
-                postFull.setForum(forumService.getForumBySlug(postFull.getPost().getForum()));
+                postFull.setForum(forumService.getBySlug(postFull.getPost().getForum()));
                 if(postFull.getForum() == null){
                     return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
                 }
@@ -65,7 +64,7 @@ public class PostController {
         return ResponseEntity.status(HttpStatus.OK).body(postFull);
     }
 
-    @RequestMapping(path = "/{id}/details", method = RequestMethod.POST)
+    @RequestMapping(path = "/api/post/{id}/details", method = RequestMethod.POST)
     public ResponseEntity updatePost(@PathVariable(name = "id") int id,
                                      @RequestBody PostUpdate body){
 

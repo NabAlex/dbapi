@@ -6,6 +6,12 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.sql.Array;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 
 public class Post {
@@ -39,6 +45,49 @@ public class Post {
         this.thread = thread;
         this.isEdited = isEdited;
         this.created = created;
+    }
+
+    public static class PostId {
+        int id;
+        public PostId(int id) {
+            this.id = id;
+        }
+
+        public int getId() {
+            return id;
+        }
+    }
+
+    public static List<PostId> parseMapId(List<Map<String, Object>> objs) {
+        List<PostId> p = new ArrayList<>();
+        for(Map<String, Object>row: objs){
+            p.add(new PostId(
+                Integer.parseInt(row.get("id").toString())
+            ));
+        }
+
+        return p;
+    }
+
+    public static List<Post> parseMap(List<Map<String, Object>> objs) {
+        List<Post> p = new ArrayList<>();
+        for(Map<String, Object>row: objs){
+            p.add(new Post(
+                Integer.parseInt(row.get("id").toString()),
+                Integer.parseInt(row.get("parent").toString()),
+                row.get("author").toString(),
+                row.get("message").toString(),
+                Boolean.parseBoolean(row.get("isEdited").toString()),
+                row.get("forum").toString(),
+                Integer.parseInt(row.get("thread_id").toString()),
+                // TODO work time
+                Timestamp.valueOf(row.get("created").toString())
+                    .toInstant().atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                )
+            );
+        }
+
+        return p;
     }
 
     public int getId() {

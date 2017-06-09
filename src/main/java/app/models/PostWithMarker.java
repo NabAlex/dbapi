@@ -6,14 +6,14 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
 
-public class PostPage {
+public class PostWithMarker {
     @JsonProperty
     String marker;
     @JsonProperty
     List<Post> posts;
 
     @JsonCreator
-    public PostPage(@JsonProperty("marker") String marker, @JsonProperty("posts") List<Post> posts){
+    public PostWithMarker(@JsonProperty("marker") String marker, @JsonProperty("posts") List<Post> posts){
         this.marker = marker;
         this.posts = posts;
     }

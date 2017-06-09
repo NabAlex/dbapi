@@ -1,9 +1,10 @@
 package app.service;
 
-import app.models.ServiceAnswer;
+import app.util.ResultPack;
 import app.models.Thread;
 import app.models.ThreadUpdate;
 import app.util.Status;
+import app.util.TimeWork;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
@@ -16,132 +17,164 @@ import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 
 
 @Service
 public class ThreadService {
-
-    final private JdbcTemplate template;
+    @Autowired
+    private JdbcTemplate template;
 
     @Autowired
-    public ThreadService(JdbcTemplate template){
-        this.template = template;
+    private UserInForumService userInForumService;
+
+    interface CommandStatic {
+        String createTable = "CREATE EXTENSION IF NOT EXISTS citext; " +
+            "CREATE TABLE IF NOT EXISTS threads ( " +
+            "id SERIAL PRIMARY KEY, " +
+            "title TEXT NOT NULL, " +
+            "author CITEXT NOT NULL, " +
+            "forum CITEXT NOT NULL, " +
+            "message TEXT NOT NULL, " +
+            "votes BIGINT NOT NULL DEFAULT 0, " +
+            "slug CITEXT UNIQUE, " +
+            "created TIMESTAMP NOT NULL DEFAULT current_timestamp, " +
+            "FOREIGN KEY (author) REFERENCES users(nickname), " +
+            "FOREIGN KEY (forum) REFERENCES forums(slug)); " +
+            "SELECT setval('threads_id_seq',1);";
+
+        String dropTable = "DROP TABLE IF EXISTS threads;";
+        String truncateTable = "TRUNCATE TABLE threads CASCADE;";
+        
+        String insertIntoThread = "INSERT INTO threads(title, author, forum, message,created,slug) " +
+            "VALUES(?,?,?,?,DEFAULT,DEFAULT) RETURNING id;";
+        String insertIntoThreadWithSlug = "INSERT INTO threads(title, author, forum, message,created,slug) " +
+            "VALUES(?,?,?,?,DEFAULT,?) RETURNING id;";
+        String insertIntoThreadWithCreated = "INSERT INTO threads(title, author, forum, message,created,slug) " +
+            "VALUES(?,?,?,?,?,DEFAULT) RETURNING id;";
+        String insertIntoThreadWithCreatedAndSlug = "INSERT INTO threads(title, author, forum, message,created,slug) " +
+            "VALUES(?,?,?,?,?,?) RETURNING id;";
+
+        String updateForum = "UPDATE forums SET threads = threads + 1 " +
+            "WHERE slug = ? ;";
+
+        String updateVoteAndReturn = "UPDATE threads SET votes=? WHERE id=? RETURNING *;";
+
+        String getThreadById = "SELECT * FROM threads WHERE id = ?";
+        String getThreadBySlug = "SELECT * FROM threads WHERE slug = ?;";
+
+        String checkThreadById = "SELECT id FROM threads WHERE id = ?;";
+        String checkThreadBySlug = "SELECT id FROM threads WHERE slug = ?;";
+
+        String getCount = "SELECT COUNT(*) FROM threads;";
+
+        // String updateCreatedAnd
     }
 
-    void createTable(){
-        String query = new StringBuilder()
-                .append("CREATE EXTENSION IF NOT EXISTS citext; ")
-                .append("CREATE TABLE IF NOT EXISTS threads ( ")
-                .append("id SERIAL PRIMARY KEY, ")
-                .append("title TEXT NOT NULL, ")
-                .append("author CITEXT NOT NULL, ")
-                .append("forum CITEXT NOT NULL, ")
-                .append("message TEXT NOT NULL, ")
-                .append("votes BIGINT NOT NULL DEFAULT 0, ")
-                .append("slug CITEXT UNIQUE, ")
-                .append("created TIMESTAMP NOT NULL DEFAULT current_timestamp, ")
-                .append("FOREIGN KEY (author) REFERENCES users(nickname), ")
-                .append("FOREIGN KEY (forum) REFERENCES forums(slug)); ")
-                .append("SELECT setval('threads_id_seq',1);")
-                .toString();
-
-        template.execute(query);
+    public void createTable() {
+        template.execute(CommandStatic.createTable);
     }
 
-    void dropTable(){
-        String query = new StringBuilder()
-                .append("DROP TABLE IF EXISTS threads ;").toString();
-
-        template.execute(query);
+    public void dropTable() {
+        template.execute(CommandStatic.dropTable);
     }
-
-    public ServiceAnswer<Thread> createNewThread(Thread thread){
-        String query = new StringBuilder()
-                .append("INSERT INTO threads(title, author, forum, message) ")
-                .append("VALUES(?,?,?,?) RETURNING id;")
-                .toString();
-        String createdQuery = new StringBuilder()
-                .append("UPDATE threads SET created = ? WHERE id = ? ;")
-                .toString();
-        String slugQuery = new StringBuilder()
-                .append("UPDATE threads SET slug = ? WHERE id = ? ;")
-                .toString();
-        String subQuery = new StringBuilder()
-                .append("UPDATE forums SET threads = threads + 1 ")
-                .append("WHERE slug = ? ;")
-                .toString();
+    public void truncateTable() {
+        template.execute(CommandStatic.truncateTable);
+    }
+    
+    public ResultPack<Thread> createNewThread(Thread thread){
+        int id;
         try {
+            String created = thread.getCreated();
+            String slug = thread.getSlug();
 
-            int id = template.queryForObject(query, Integer.class, thread.getTitle(), thread.getAuthor(), thread.getForum(), thread.getMessage());
-            template.update(subQuery, thread.getForum());
-
-            if(thread.getCreated() != null) {
-                String st = ZonedDateTime.parse(thread.getCreated()).format(DateTimeFormatter.ISO_INSTANT);
-                template.update(createdQuery, new Timestamp(ZonedDateTime.parse(st).toLocalDateTime().toInstant(ZoneOffset.UTC).toEpochMilli()), id);
-            }
-
-            if(thread.getSlug() != null) {
-                template.update(slugQuery, thread.getSlug(), id);
+            if(created != null && slug != null) {
+                id = template.queryForObject(CommandStatic.insertIntoThreadWithCreatedAndSlug,
+                    Integer.class,
+                    thread.getTitle(),
+                    thread.getAuthor(),
+                    thread.getForum(),
+                    thread.getMessage(),
+                    TimeWork.toZonedDateTime(created),
+                    slug);
+            } else if(created != null) {
+                id = template.queryForObject(CommandStatic.insertIntoThreadWithCreated,
+                    Integer.class,
+                    thread.getTitle(),
+                    thread.getAuthor(),
+                    thread.getForum(),
+                    thread.getMessage(),
+                    TimeWork.toZonedDateTime(created));
+            } else if(slug != null) {
+                id = template.queryForObject(CommandStatic.insertIntoThreadWithSlug,
+                    Integer.class,
+                    thread.getTitle(),
+                    thread.getAuthor(),
+                    thread.getForum(),
+                    thread.getMessage(),
+                    slug);
+            } else {
+                id = template.queryForObject(CommandStatic.insertIntoThread,
+                    Integer.class,
+                    thread.getTitle(),
+                    thread.getAuthor(),
+                    thread.getForum(),
+                    thread.getMessage());
             }
             thread.setId(id);
+
+            userInForumService.addUserToForum(thread.getForum(), thread.getAuthor());
+            template.update(CommandStatic.updateForum, thread.getForum());
         }
         catch (DuplicateKeyException e){
-            return new ServiceAnswer<>(getThreadBySlug(thread.getSlug()), Status.DUPLICATE);
+            return new ResultPack<>(getThreadBySlug(thread.getSlug()), Status.CONFLICT);
         }
 
-        return new ServiceAnswer<>(thread, Status.OK);
+        return new ResultPack<>(thread, Status.OK);
     }
 
 
     public Thread getThreadById(int id) {
-        String query = String.format("SELECT * FROM threads WHERE id = '%d';", id);
         try {
-            return template.queryForObject(query, threadMapper);
-        } catch (DataAccessException e) {
-            e.printStackTrace();
-        }
+            return template.queryForObject(CommandStatic.getThreadById, threadMapper, id);
+        } catch (DataAccessException e) {}
+
+        return null;
+    }
+
+    public Integer checkThreadById(int id) {
+        try {
+            return template.queryForObject(CommandStatic.checkThreadById, Integer.class, id);
+        } catch (DataAccessException e) {}
+
+        return null;
+    }
+
+    public Integer checkThreadBySlug(String slug) {
+        try {
+            return template.queryForObject(CommandStatic.checkThreadBySlug, Integer.class, slug);
+        } catch (DataAccessException e) {}
 
         return null;
     }
 
     public Thread getThreadBySlug(String slug) {
-        String query = String.format("SELECT * FROM threads WHERE slug = '%s';", slug);
         try {
-            return template.queryForObject(query, threadMapper);
-        } catch (DataAccessException e) {
-            //System.out.println(e.getMessage());
-        }
+            return template.queryForObject(CommandStatic.getThreadBySlug, threadMapper, slug);
+        } catch (DataAccessException e) {}
         return null;
     }
 
-
-
-    int getCount(){
-        String query = new StringBuilder()
-                .append("SELECT COUNT(*) FROM threads ;").toString();
-
-        return template.queryForObject(query, Integer.class);
+    int getCount() {
+        return template.queryForObject(CommandStatic.getCount, Integer.class);
     }
 
-    private final RowMapper<Thread> threadMapper = (rs, num) -> {
-        final int id = rs.getInt("id");
-        final String title = rs.getString("title");
-        final String author = rs.getString("author");
-        final String forum = rs.getString("forum");
-        final String message = rs.getString("message");
-        final int votes = rs.getInt("votes");
-        final String slug = rs.getString("slug");
-        final String created = rs.getTimestamp("created").toInstant().atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
-        return new Thread(id, title, author, forum, message, votes, slug, created);
-    };
-
-
     public List<Thread> getThreadsByForum(String slug, Integer limit, String since, Boolean desc) {
-        Timestamp time = null;
         StringBuilder queryBuilder = new StringBuilder()
                 .append("SELECT * FROM threads WHERE forum = ? ");
 
+        Timestamp time = null;
         if(since != null) {
             String st = ZonedDateTime.parse(since).format(DateTimeFormatter.ISO_INSTANT);
             time = new Timestamp(ZonedDateTime.parse(st).toLocalDateTime().toInstant(ZoneOffset.UTC).toEpochMilli());
@@ -178,31 +211,29 @@ public class ThreadService {
             threads = new ArrayList<>();
             for (Map<String, Object> row : rows) {
                 threads.add(new Thread(
-                                Integer.parseInt(row.get("id").toString()), row.get("title").toString(),
-                                row.get("author").toString(), row.get("forum").toString(),
-                                row.get("message").toString(), Integer.parseInt(row.get("votes").toString()),
-                                row.get("slug").toString(), Timestamp.valueOf(row.get("created").toString())
+                    Integer.parseInt(row.get("id").toString()),
+                    row.get("title").toString(),
+                    row.get("author").toString(),
+                    row.get("forum").toString(),
+                    row.get("message").toString(),
+                    Integer.parseInt(row.get("votes").toString()),
+                    row.get("slug").toString(),
+                    Timestamp.valueOf(row.get("created").toString())
                                 .toInstant().atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-                        )
-                );
+                ));
             }
 
             return threads;
         }
         catch (DataAccessException e){}
+
         return null;
     }
 
-    Thread resetVotes(int id){
-        String query = new StringBuilder()
-                .append("UPDATE threads SET votes = ( ")
-                .append("SELECT SUM(voice) FROM votes WHERE thread_id = ? GROUP BY thread_id ) ")
-                .append("WHERE id = ? ")
-                .append("RETURNING * ;")
-                .toString();
-
+    Thread changeVote(int threadId, int change){
         try {
-            return template.queryForObject(query, threadMapper, id, id);
+            return template.queryForObject(CommandStatic.updateVoteAndReturn, threadMapper,
+                change, threadId);
         } catch (DataAccessException e) {}
 
         return null;
@@ -233,4 +264,16 @@ public class ThreadService {
         }
         return this.getThreadById(id);
     }
+
+    private final RowMapper<Thread> threadMapper = (rs, num) -> {
+        final int id = rs.getInt("id");
+        final String title = rs.getString("title");
+        final String author = rs.getString("author");
+        final String forum = rs.getString("forum");
+        final String message = rs.getString("message");
+        final int votes = rs.getInt("votes");
+        final String slug = rs.getString("slug");
+        final String created = rs.getTimestamp("created").toInstant().atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+        return new Thread(id, title, author, forum, message, votes, slug, created);
+    };
 }

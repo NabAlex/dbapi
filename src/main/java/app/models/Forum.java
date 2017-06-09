@@ -39,31 +39,7 @@ public class Forum{
         return user;
     }
 
-    public int getPosts() {
-        return posts;
-    }
-
-    public int getThreads() {
-        return threads;
-    }
-
-    public void setTitle(String title) {
-        this.title = title;
-    }
-
-    public void setSlug(String slug) {
-        this.slug = slug;
-    }
-
-    public void setUser(String user) {
-        this.user = user;
-    }
-
-    public void setPosts(int posts) {
-        this.posts = posts;
-    }
-
-    public void setThreads(int threads) {
-        this.threads = threads;
+    public void setNick(String nick) {
+        this.user = nick;
     }
 }

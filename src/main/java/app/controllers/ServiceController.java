@@ -1,6 +1,6 @@
 package app.controllers;
 
-import app.service.ServiceService;
+import app.service.MainService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -10,19 +10,19 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping(path = "/api/service")
-public class ServiceController {
+public class
+ServiceController {
 
-    final private ServiceService serviceService;
+    final private MainService serviceService;
 
     @Autowired
-    public ServiceController(ServiceService serviceService){
+    public ServiceController(MainService serviceService){
         this.serviceService = serviceService;
     }
 
     @RequestMapping(path = "/clear", method = RequestMethod.POST)
-    public ResponseEntity clear(){
-        serviceService.dropAllTables();
-        serviceService.createAllTables();
+    public ResponseEntity clear() {
+        serviceService.truncateTable();
         return ResponseEntity.status(HttpStatus.OK).build();
     }
 

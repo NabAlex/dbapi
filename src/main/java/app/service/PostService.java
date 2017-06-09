@@ -1,332 +1,327 @@
 package app.service;
 
 import app.models.Post;
-import app.models.PostPage;
+import app.models.PostWithMarker;
 import app.models.PostUpdate;
+import app.service.util.BatchManagerService;
 import app.util.*;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
-import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.sql.Array;
-import java.sql.Time;
-import java.sql.Timestamp;
-import java.time.LocalDateTime;
+import java.sql.*;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 
 @Service
+@Transactional
 public class PostService {
-
-    final private JdbcTemplate template;
+    @Autowired
+    private JdbcTemplate template;
 
     @Autowired
-    public PostService(JdbcTemplate template) {
-        this.template = template;
+    private UserInForumService userInForumService;
+
+    @Autowired
+    BatchManagerService batchManagerService;
+    
+    interface CommandStatic {
+        String createTable = "CREATE TABLE IF NOT EXISTS posts (" +
+            "id SERIAL PRIMARY KEY, " +
+            "parent BIGINT NOT NULL DEFAULT 0, " +
+            "author CITEXT NOT NULL, " +
+            "message TEXT NOT NULL, " +
+            "isEdited BOOLEAN NOT NULL DEFAULT false, " +
+            "forum CITEXT NOT NULL, " +
+            "thread_id BIGINT NOT NULL, " +
+            "created TIMESTAMP NOT NULL DEFAULT current_timestamp, " +
+            "post_path integer[], " +
+            "FOREIGN KEY (author) REFERENCES users(nickname), " +
+            "FOREIGN KEY (forum) REFERENCES forums(slug), " +
+            "FOREIGN KEY (thread_id) REFERENCES threads(id)); ";
+
+        String dropTable = "DROP TABLE IF EXISTS posts;";
+        String truncateTable = "TRUNCATE TABLE posts CASCADE;";
+        
+        String getById = "SELECT * FROM posts WHERE id=?";
+
+        String insertIntoPosts = "INSERT INTO posts(id, parent, author, message, thread_id, forum, created, post_path) " +
+            "VALUES(?,?,?,?,?,?,?,array_append((SELECT post_path FROM posts WHERE id = ?), ?));";
+
+        String selectFlatSort = "SELECT * FROM posts WHERE thread_id=? ORDER BY id LIMIT ? OFFSET ?;";
+        String selectFlatSortDesc = "SELECT * FROM posts WHERE thread_id=? ORDER BY id DESC LIMIT ? OFFSET ?;";
+
+        String selectTreeSort = "SELECT p.id, p.parent, p.author, p.message, p.isEdited, p.forum, p.thread_id, p.created FROM posts AS p " +
+            "JOIN threads AS t ON (t.id = p.thread_id) " +
+            "WHERE t.id = ? " +
+            "ORDER BY p.post_path LIMIT ? OFFSET ?";
+        String selectTreeSortDesc = "SELECT p.id, p.parent, p.author, p.message, p.isEdited, p.forum, p.thread_id, p.created FROM posts AS p " +
+            "JOIN threads AS t ON (t.id = p.thread_id) " +
+            "WHERE t.id = ? " +
+            "ORDER BY p.post_path DESC LIMIT ? OFFSET ?;";
+
+        String selectChildPosts = "SELECT p.id, p.parent, p.author, p.message, p.isEdited, p.forum, p.thread_id, p.created FROM posts AS p " +
+            "WHERE p.post_path[1] = ? ORDER BY post_path;";
+
+        String selectChildPostsDesc = "SELECT p.id, p.parent, p.author, p.message, p.isEdited, p.forum, p.thread_id, p.created FROM posts AS p " +
+            "WHERE p.post_path[1] = ? ORDER BY post_path DESC;";
+
+        String update = "UPDATE posts SET isEdited = true, message=? WHERE id=?;";
+        String getCount = "SELECT COUNT(*) FROM posts;";
+        
+        String updateCountPostsInForum = "UPDATE forums SET posts=posts+? WHERE slug=?;";
+    }
+
+    private Connection getConnectionDB() throws SQLException {
+        return template.getDataSource().getConnection();
     }
 
     public void createTable() {
-        String query = new StringBuilder()
-                .append("CREATE TABLE IF NOT EXISTS posts ( ")
-                .append("id SERIAL PRIMARY KEY, ")
-                .append("parent BIGINT NOT NULL DEFAULT 0, ")
-                .append("author CITEXT NOT NULL, ")
-                .append("message TEXT NOT NULL, ")
-                .append("isEdited BOOLEAN NOT NULL DEFAULT false, ")
-                .append("forum CITEXT NOT NULL, ")
-                .append("thread_id BIGINT NOT NULL, ")
-                .append("created TIMESTAMP NOT NULL DEFAULT current_timestamp, ")
-                .append("post_path integer[], ")
-                .append("FOREIGN KEY (author) REFERENCES users(nickname), ")
-                .append("FOREIGN KEY (forum) REFERENCES forums(slug), ")
-                .append("FOREIGN KEY (thread_id) REFERENCES threads(id)); ")
-                .toString();
-
-        template.execute(query);
+        template.execute(CommandStatic.createTable);
     }
 
     public void dropTable() {
-        String query = new StringBuilder()
-                .append("DROP TABLE IF EXISTS posts;").toString();
+        template.execute(CommandStatic.dropTable);
+    }
+    public void truncateTable() {
+        template.execute(CommandStatic.truncateTable);
+    }
+    
+    public Post getPostById(int id) {
+        Post posts = null;
+        try {
+            posts = template.queryForObject(CommandStatic.getById, postMapper, id);
+        } catch (Exception e) {}
 
-        template.execute(query);
+        return posts;
     }
 
-    public int getCount() {
-        String query = new StringBuilder()
-                .append("SELECT COUNT(*) FROM posts ;").toString();
-
-        return template.queryForObject(query, Integer.class);
-    }
-
-    public List<Post> createManyPosts(List<Post> posts) {
-
-        /* % - custom replace */
-        String query = new StringBuilder()
-                .append("INSERT INTO posts(parent, author, message, thread_id, forum, created, post_path) ")
-                .append("VALUES(?,?,?,?,?,?,%) RETURNING *;").toString();
-
-        String subQuery = new StringBuilder()
-                .append("UPDATE forums SET posts = posts + 1 ")
-                .append("WHERE slug = ? ;")
-                .toString();
-
-        String ifIssetParent = "WITH parent_path AS (SELECT post_path AS path FROM posts WHERE id=?) ";
-
-        List<Post> newPosts = new ArrayList<>();
+    public Post update(PostUpdate needPost, int needId) {
+        if (needPost.getMessage() == null)
+            return getPostById(needId);
 
         try {
-            Timestamp timestamp = Timestamp.valueOf(LocalDateTime.parse(LocalDateTime.now().toString(), DateTimeFormatter.ISO_DATE_TIME));
+            Post post = getPostById(needId);
+            if (post.getMessage().equals(needPost.getMessage())) {
+                return post;
+            }
 
-            for (Post post : posts) {
-                String sql = query;
-                String finalPath;
-                if(post.getParent() == 0) {
-                    finalPath = "ARRAY[(currval(pg_get_serial_sequence('posts','id')))]";
-                } else {
-                    sql = ifIssetParent.replace("?", post.getParent() + "") + query;
-                    finalPath = "(SELECT * FROM parent_path)::BIGINT[] || (currval(pg_get_serial_sequence('posts','id')))";
+            template.update(CommandStatic.update, needPost.getMessage(), needId);
+        } catch (DataAccessException | NullPointerException e) {
+            return null;
+        }
+        return getPostById(needId);
+    }
+
+    public PostWithMarker flatSort(int threadId, Integer limit, Integer offset, Boolean desc) {
+        String query = null;
+        if (desc) {
+            query = CommandStatic.selectFlatSortDesc;
+        } else
+            query = CommandStatic.selectFlatSort;
+
+        List<Post> posts = null;
+        try {
+            posts = template.query(query, postMapper, threadId, limit, offset);
+        } catch (DataAccessException e) {
+            return null;
+        }
+
+        Integer newMarker = offset;
+        if (!posts.isEmpty()) {
+            newMarker += posts.size();
+        }
+
+        return new PostWithMarker(String.valueOf(newMarker), posts);
+    }
+
+    private PostWithMarker treeSort(int threadId, Integer limit, Integer offset, Boolean desc) {
+        // was changes
+        List<Post> posts = null;
+        try {
+            List<Map<String, Object>> rows;
+            if(desc)
+                posts = template.query(CommandStatic.selectTreeSortDesc, postMapper, threadId, limit, offset);
+            else
+                posts = template.query(CommandStatic.selectTreeSort, postMapper, threadId, limit, offset);
+
+        } catch (DataAccessException e) {
+            return null;
+        }
+
+        Integer newMarker = offset;
+        if (!posts.isEmpty()) {
+            newMarker += posts.size();
+        }
+
+        return new PostWithMarker(String.valueOf(newMarker), posts);
+    }
+
+    public PostWithMarker parentTreeSort(int threadId, Integer limit, Integer offset, Boolean desc) {
+        ArrayList<Post> posts = null;
+
+        int sizeParents;
+        try {
+            List<Map<String, Object>> parents;
+            if(desc)
+                parents = template.queryForList("SELECT id, created FROM posts WHERE thread_id = ? AND parent = 0 ORDER BY id DESC LIMIT ? OFFSET ?;", threadId, limit, offset);
+            else
+                parents = template.queryForList("SELECT id, created FROM posts WHERE thread_id = ? AND parent = 0 ORDER BY id LIMIT ? OFFSET ?;", threadId, limit, offset);
+
+            sizeParents = parents.size();
+            List<Post.PostId> postIds = Post.parseMapId(parents);
+
+            posts = new ArrayList<>();
+
+            String queryChooseChild;
+            if(desc)
+                queryChooseChild = CommandStatic.selectChildPostsDesc;
+            else
+                queryChooseChild = CommandStatic.selectChildPosts;
+
+            for(Post.PostId parentPost : postIds) {
+                int idParent = parentPost.getId();
+                // ???
+                List<Post> childPost = Post.parseMap( template.queryForList(queryChooseChild, idParent) );
+                for(Post child : childPost) {
+                    posts.add(child);
                 }
-                sql = sql.replace("%", finalPath);
-                Log.d(sql);
-                Post newPost = template.queryForObject(sql, postMapper,
-                        post.getParent(), post.getAuthor(), post.getMessage(), post.getThread(), post.getForum(), timestamp);
-
-                template.update(subQuery, post.getForum());
-                newPosts.add(newPost);
             }
         } catch (DataAccessException e) {
+            return null;
+        }
+
+        return new PostWithMarker(String.valueOf(sizeParents + offset), posts);
+    }
+
+    public PostWithMarker getByThread(int threadId, Integer limit, String marker, String sort, Boolean desc) {
+        if (desc == null)
+            desc = false;
+
+        if (marker == null)
+            marker = "0";
+
+        PostWithMarker page = null;
+
+        if (sort == null || sort.equals("flat"))
+            page = flatSort(threadId, limit, Integer.parseInt(marker), desc);
+        else if (sort.equals("tree"))
+            page = treeSort(threadId, limit, Integer.parseInt(marker), desc);
+        else if (sort.equals("parent_tree"))
+            page = parentTreeSort(threadId, limit, Integer.parseInt(marker), desc);
+
+        return page;
+    }
+
+    public PreparedStatement generateAddPostStatement(Connection connection) throws SQLException {
+        return connection.prepareStatement(
+            CommandStatic.insertIntoPosts, Statement.NO_GENERATED_KEYS);
+    }
+
+    public void addPostBatch(PreparedStatement preparedStatement, Post post, Timestamp currentTime) throws SQLException {
+        preparedStatement.setInt(1, post.getId());
+        preparedStatement.setInt(2, post.getParent());
+        preparedStatement.setString(3, post.getAuthor());
+        preparedStatement.setString(4, post.getMessage());
+        preparedStatement.setInt(5, post.getThread());
+        preparedStatement.setString(6, post.getForum());
+
+        preparedStatement.setInt(8, post.getParent());
+        preparedStatement.setInt(9, post.getId());
+        preparedStatement.setTimestamp(7, new Timestamp(ZonedDateTime.parse(post.getCreated()).toInstant().toEpochMilli()));
+
+        // template.queryForObject("SELECT insert_users_forum(?::CITEXT,?::CITEXT);", Object.class, post.getForum(), post.getAuthor());
+
+        preparedStatement.addBatch();
+    }
+
+    public List<Post> createPosts(List<Post> posts){
+        List<Post> newPosts = new ArrayList<>();
+        try(Connection connection = template.getDataSource().getConnection()) {
+            PreparedStatement preparedAddPost = generateAddPostStatement(connection);
+            PreparedStatement preparedAddUserInForum = userInForumService.generateStatement(connection);
+
+            Map<String, Integer> updatedForums = new HashMap<>();
+            Integer seq;
+            Timestamp currentTime = null;
+            String time = null;
+            if(posts.get(0).getCreated() == null){
+                currentTime = template.queryForObject("SELECT current_timestamp;", Timestamp.class);
+                time = currentTime.toInstant().atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+            }
+
+            for (Post post: posts) {
+                seq = template.queryForObject("SELECT nextval('posts_id_seq');", Integer.class);
+
+                post.setId(seq);
+                if(post.getCreated() == null)
+                    post.setCreated(time);
+
+                this.addPostBatch(preparedAddPost, post, currentTime);
+                userInForumService.addBatch(preparedAddUserInForum,
+                    post.getForum(),
+                    post.getAuthor());
+
+                // TODO change
+                if(!updatedForums.containsKey(post.getForum()))
+                    updatedForums.put(post.getForum(), 1);
+                else
+                    updatedForums.put(post.getForum(), updatedForums.get(post.getForum()) + 1);
+
+                newPosts.add(post);
+            }
+
+            try {
+                MainService.endBatch(preparedAddPost);
+            } catch (SQLException e) {
+                /* if no author */
+                preparedAddPost.close();
+                preparedAddUserInForum.close();
+                
+                return null;
+            }
+            
+            batchManagerService.addPreparedStatement(preparedAddUserInForum);
+            
+            preparedAddPost = connection.prepareStatement(CommandStatic.updateCountPostsInForum,
+                Statement.NO_GENERATED_KEYS);
+
+            for (Map.Entry<String, Integer> forum : updatedForums.entrySet()){
+                preparedAddPost.setInt(1, forum.getValue());
+                preparedAddPost.setString(2, forum.getKey());
+                preparedAddPost.addBatch();
+            }
+            
+            MainService.endBatch(preparedAddPost);
+        } catch (SQLException e) {
+            e.getNextException().printStackTrace();
             return null;
         }
         return newPosts;
     }
 
-    public Post update(PostUpdate postUpdate, int id) {
-        StringBuilder queryBuilder = new StringBuilder()
-                .append("UPDATE posts SET isEdited = true , ");
-
-        boolean f = false;
-        if (postUpdate.getMessage() != null) {
-            queryBuilder.append("message = '" + postUpdate.getMessage() + "' ");
-            f = true;
-        }
-        queryBuilder.append(" WHERE id = '" + id + "' ;");
-
-        if (f) {
-            try {
-                Post oldPost = getPostById(id);
-                if (oldPost.getMessage().equals(postUpdate.getMessage())) {
-                    return oldPost;
-                }
-                template.update(queryBuilder.toString());
-            } catch (DataAccessException | NullPointerException e) {
-                return null;
-            }
-        }
-        return getPostById(id);
+    public int getCount() {
+        return template.queryForObject(CommandStatic.getCount, Integer.class);
     }
 
-    public Post getPostById(int id) {
-        String query = String.format("SELECT * FROM posts WHERE id = '%d';", id);
-        Post posts = null;
-        try {
-            posts = template.queryForObject(query, postMapper);
-        } catch (EmptyResultDataAccessException e) {}
-
-        return posts;
-    }
-
-    public PostPage flatSort(int id, Integer limit, Integer offset, Boolean desc) {
-        StringBuilder queryBuilder = new StringBuilder()
-                .append("SELECT * FROM posts WHERE thread_id = ? ");
-
-        if (desc) {
-            queryBuilder.append("ORDER BY id DESC ");
-        } else
-            queryBuilder.append("ORDER BY id ");
-
-        queryBuilder.append("LIMIT ? ");
-        queryBuilder.append("OFFSET ? ;");
-        String query = queryBuilder.toString();
-
-        ArrayList<Post> posts = null;
-        try {
-            List<Map<String, Object>> rows;
-            rows = template.queryForList(query, id, limit, offset);
-
-            posts = new ArrayList<>();
-            for (Map<String, Object> row : rows) {
-                posts.add(new Post(
-                                Integer.parseInt(row.get("id").toString()), Integer.parseInt(row.get("parent").toString()),
-                                row.get("author").toString(), row.get("message").toString(),
-                                Boolean.parseBoolean(row.get("isEdited").toString()), row.get("forum").toString(),
-                                Integer.parseInt(row.get("thread_id").toString()), Timestamp.valueOf(row.get("created").toString())
-                                .toInstant().atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-                        )
-                );
-            }
-        } catch (DataAccessException e) {
-            //System.out.println(e.getMessage());
-            return null;
-        }
-        Integer newMarker = offset;
-        if (!posts.isEmpty()) {
-            newMarker += posts.size();
-        }
-        return new PostPage(String.valueOf(newMarker), posts);
-    }
-
-    private PostPage treeSort(int id, Integer limit, Integer offset, Boolean desc) {
-        StringBuilder queryBuilder = new StringBuilder()
-                .append("SELECT p.id, p.parent, p.author, p.message, p.isEdited, p.forum, p.thread_id, p.created FROM posts AS p ")
-                .append("JOIN threads AS t ON (t.id = p.thread_id) ")
-                .append("WHERE t.id = ? ")
-                .append("ORDER BY p.post_path ");
-
-        if (desc)
-            queryBuilder.append("DESC ");
-
-
-        queryBuilder.append("LIMIT ? ");
-        queryBuilder.append("OFFSET ?;");
-        String query = queryBuilder.toString();
-
-        ArrayList<Post> posts = null;
-        try {
-            List<Map<String, Object>> rows;
-            Log.d(query);
-            rows = template.queryForList(query, id, limit, offset);
-
-            posts = new ArrayList<>();
-            for (Map<String, Object> row : rows) {
-                posts.add(new Post(
-                                Integer.parseInt(row.get("id").toString()), Integer.parseInt(row.get("parent").toString()),
-                                row.get("author").toString(), row.get("message").toString(),
-                                Boolean.parseBoolean(row.get("isEdited").toString()), row.get("forum").toString(),
-                                Integer.parseInt(row.get("thread_id").toString()), Timestamp.valueOf(row.get("created").toString())
-                                .toInstant().atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-                        )
-                );
-            }
-        } catch (DataAccessException e) {
-            Log.d("Was error!");
-            return null;
-        }
-        Integer newMarker = offset;
-        if (!posts.isEmpty()) {
-            newMarker += posts.size();
-        }
-        return new PostPage(String.valueOf(newMarker), posts);
-    }
-
-    public PostPage parentTreeSort(int id, Integer limit, Integer offset, Boolean desc) {
-        StringBuilder queryBuilder = new StringBuilder()
-                .append("SELECT p.id, p.parent, p.author, p.message, p.isEdited, p.forum, p.thread_id, p.created FROM posts AS p ")
-                .append("JOIN threads AS t ON (t.id = p.thread_id) ")
-                .append("WHERE t.id = ? ")
-                .append("ORDER BY p.post_path ");
-
-        if (desc)
-            queryBuilder.append("DESC ");
-
-
-        queryBuilder.append("OFFSET ?;");
-
-        String query = queryBuilder.toString();
-
-        ArrayList<Post> posts = null;
-        List<Map<String, Object>> parentRows;
-        try {
-            List<Map<String, Object>> rows;
-            Log.d(query);
-            rows = template.queryForList(query, id, offset);
-
-            posts = new ArrayList<>();
-            int count = 0;
-            for (Map<String, Object> row : rows) {
-                int parent_now = Integer.parseInt(row.get("parent").toString());
-                if(parent_now == 0) {
-                    if(desc) count++;
-
-                    if(count >= limit)
-                    {
-                        if(desc)
-                            posts.add(new Post(
-                                            Integer.parseInt(row.get("id").toString()), parent_now,
-                                            row.get("author").toString(), row.get("message").toString(),
-                                            Boolean.parseBoolean(row.get("isEdited").toString()), row.get("forum").toString(),
-                                            Integer.parseInt(row.get("thread_id").toString()), Timestamp.valueOf(row.get("created").toString())
-                                            .toInstant().atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-                                    )
-                            );
-                        break;
-                    }
-
-                    if(!desc) count++;
-                }
-
-                posts.add(new Post(
-                                Integer.parseInt(row.get("id").toString()), parent_now,
-                                row.get("author").toString(), row.get("message").toString(),
-                                Boolean.parseBoolean(row.get("isEdited").toString()), row.get("forum").toString(),
-                                Integer.parseInt(row.get("thread_id").toString()), Timestamp.valueOf(row.get("created").toString())
-                                .toInstant().atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-                        )
-                );
-            }
-        } catch (DataAccessException e) {
-            Log.d("Was error!");
-            return null;
-        }
-        Integer newMarker = offset;
-        if (!posts.isEmpty()) {
-            newMarker += posts.size();
-        }
-        return new PostPage(String.valueOf(newMarker), posts);
-    }
-
-    public PostPage getByThread(int id, Integer limit, String marker, String sort, Boolean desc) {
-        if (marker == null) {
-            marker = "0";
-        }
-        if (sort == null) {
-            sort = "flat";
-        }
-        if (desc == null) {
-            desc = false;
-        }
-        PostPage page = null;
-
-        if (sort.toLowerCase().equals("flat")) {
-            page = flatSort(id, limit, Integer.parseInt(marker), desc);
-        }
-        if (sort.toLowerCase().equals("tree")) {
-            page = treeSort(id, limit, Integer.parseInt(marker), desc);
-        }
-        if (sort.toLowerCase().equals("parent_tree")) {
-            page = parentTreeSort(id, limit, Integer.parseInt(marker), desc);
-        }
-        return page;
-    }
-
-    private final RowMapper<Post> postMapper = (rs, num) -> {
-        final int id = rs.getInt("id");
-        final int parent = rs.getInt("parent");
-        final String author = rs.getString("author");
-        final String message = rs.getString("message");
-        final boolean isEdited = rs.getBoolean("isEdited");
-        final String forum = rs.getString("forum");
-        final int thread = rs.getInt("thread_id");
-        final String created = rs.getTimestamp("created").toInstant().atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
-
-        return new Post(id, parent, author, message, isEdited, forum, thread, created);
-    };
+    private final RowMapper<Post> postMapper = (rs, num) ->
+            new Post(rs.getInt("id"),
+                rs.getInt("parent"),
+                rs.getString("author"),
+                rs.getString("message"),
+                rs.getBoolean("isEdited"),
+                rs.getString("forum"),
+                rs.getInt("thread_id"),
+                TimeWork.getIsoTime(rs.getTimestamp("created"))
+            );
 }

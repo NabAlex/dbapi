@@ -1,7 +1,8 @@
 package app.controllers;
 
+import app.service.UserInForumService;
 import app.service.UserService;
-import app.models.ServiceAnswer;
+import app.util.ResultPack;
 import app.models.User;
 import app.util.Status;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -9,44 +10,36 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.ArrayList;
+import java.util.List;
 
 @RestController
-@RequestMapping(path = "/api/user")
 public class UserController {
-
-    final private UserService userService;
-
-    @Autowired
-    public UserController(UserService userService){
-        this.userService = userService;
-    }
-
-    @RequestMapping(path = "/{nickname}/create", method = RequestMethod.POST)
+    @Autowired private UserService userService;
+    
+    @RequestMapping(path = "/api/user/{nickname}/create", method = RequestMethod.POST)
     public ResponseEntity createUser(@PathVariable(name = "nickname") String nickname,
                                      @RequestBody User user){
         user.setNickname(nickname);
-        if(!user.isNotNull()){
+
+        if(!User.isIsSet(user))
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
-        }
 
         int errorCode = userService.createNewUser(user);
 
-        if(errorCode == Status.DUPLICATE){
-            ArrayList<User> duplicates = userService.getDuplicates(user);
-            ResponseEntity tmp = ResponseEntity.status(HttpStatus.CONFLICT).body(duplicates);
+        if(errorCode == Status.CONFLICT){
+            List<User> duplicates = userService.getDuplicates(user, null);
             return ResponseEntity.status(HttpStatus.CONFLICT).body(duplicates);
-        }
-        if(errorCode == Status.UNDEFINED){
+        } else if(errorCode == Status.NOTFOUND){
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
+
         return ResponseEntity.status(HttpStatus.CREATED).body(user);
     }
 
 
-    @RequestMapping(path = "/{nickname}/profile", method = RequestMethod.GET)
+    @RequestMapping(path = "/api/user/{nickname}/profile", method = RequestMethod.GET)
     public ResponseEntity<User> getUserProfile(@PathVariable(name = "nickname") String nickname){
-        User user = userService.getUserByNick(nickname);
+        User user = userService.getUserByNickname(nickname);
         if (user == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
@@ -54,16 +47,16 @@ public class UserController {
     }
 
 
-    @RequestMapping(path = "/{nickname}/profile", method = RequestMethod.POST)
+    @RequestMapping(path = "/api/user/{nickname}/profile", method = RequestMethod.POST)
     public ResponseEntity changeUserData(@PathVariable(name = "nickname") String nickname,
                                      @RequestBody User newUser){
         newUser.setNickname(nickname);
-        ServiceAnswer<User> serviceAnswer = userService.updateUser(newUser);
+        ResultPack<User> serviceAnswer = userService.updateUser(newUser);
 
-        if(serviceAnswer.getErrorCode() == Status.DUPLICATE){
+        if(serviceAnswer.getErrorCode() == Status.CONFLICT){
             return ResponseEntity.status(HttpStatus.CONFLICT).build();
         }
-        if(serviceAnswer.getErrorCode() == Status.UNDEFINED){
+        if(serviceAnswer.getErrorCode() == Status.NOTFOUND){
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
         return ResponseEntity.status(HttpStatus.OK).body(serviceAnswer.getData());

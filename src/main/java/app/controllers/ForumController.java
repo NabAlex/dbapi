@@ -2,8 +2,9 @@ package app.controllers;
 
 import app.service.ForumService;
 import app.service.ThreadService;
+import app.service.UserInForumService;
 import app.service.UserService;
-import app.models.ServiceAnswer;
+import app.util.ResultPack;
 import app.models.Forum;
 import app.models.Thread;
 import app.models.User;
@@ -16,61 +17,48 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping(path = "/api/forum")
 public class ForumController {
-
-    final private ForumService forumService;
-    final private ThreadService threadService;
-    final private UserService userService;
-
-    @Autowired
-    public ForumController(ForumService forumService, UserService userService, ThreadService threadService){
-        this.forumService = forumService;
-        this.userService = userService;
-        this.threadService = threadService;
-    }
-
-    @RequestMapping(path = "/create", method = RequestMethod.POST)
+    @Autowired private ForumService forumService;
+    @Autowired private ThreadService threadService;
+    @Autowired private UserService userService;
+    
+    @Autowired private UserInForumService userInForumService;
+    
+    @RequestMapping(path = "/api/forum/create", method = RequestMethod.POST)
     public ResponseEntity createForum(@RequestBody Forum forum){
-
-        User user = null;
-
-        user = userService.getUserByNick(forum.getUser());
-        if(user == null){
+        User user = userService.getUserByNickname(forum.getUser());
+        if(user == null)
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-        }
-        forum.setUser(user.getNickname());
 
-        ServiceAnswer<Forum> serviceAnswer = forumService.createNewForum(forum);
+        forum.setNick(user.getNickname());
+        ResultPack<Forum> serviceAnswer = forumService.create(forum);
 
-        if(serviceAnswer.getErrorCode() == Status.DUPLICATE){
+        if(serviceAnswer.getErrorCode() == Status.CONFLICT){
             return ResponseEntity.status(HttpStatus.CONFLICT).body(serviceAnswer.getData());
         }
-        if(serviceAnswer.getErrorCode() == Status.UNDEFINED){
+        if(serviceAnswer.getErrorCode() == Status.NOTFOUND){
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
         return ResponseEntity.status(HttpStatus.CREATED).body(serviceAnswer.getData());
     }
 
-    @RequestMapping(path = "/{slug}/details", method = RequestMethod.GET)
+    @RequestMapping(path = "/api/forum/{slug}/details", method = RequestMethod.GET)
     public ResponseEntity getForumDetails(@PathVariable(name = "slug") String slug){
+        Forum forum = forumService.getBySlug(slug);
 
-        Forum forum = forumService.getForumBySlug(slug);
-
-        if(forum == null){
+        if(forum == null)
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-        }
 
         return ResponseEntity.status(HttpStatus.OK).body(forum);
     }
 
-    @RequestMapping(path = "/{slug}/threads", method = RequestMethod.GET)
+    @RequestMapping(path = "/api/forum/{slug}/threads", method = RequestMethod.GET)
     public ResponseEntity getForumThreads(@PathVariable(name = "slug") String slug,
                                   @RequestParam(name = "limit", required = false) Integer limit,
                                   @RequestParam(name = "since", required = false) String since,
                                   @RequestParam(name = "desc", required = false) Boolean desc){
 
-        Forum forum = forumService.getForumBySlug(slug);
+        Forum forum = forumService.getBySlug(slug);
 
         if(forum == null){
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
@@ -84,37 +72,37 @@ public class ForumController {
         return ResponseEntity.status(HttpStatus.OK).body(threads);
     }
 
-    @RequestMapping(path="/{slug}/create", method = RequestMethod.POST)
+    @RequestMapping(path="/api/forum/{slug}/create", method = RequestMethod.POST)
     public ResponseEntity createThread(@PathVariable(name = "slug") String slug,
                                        @RequestBody Thread thread){
 
-        User user = userService.getUserByNick(thread.getAuthor());
-        Forum forum = forumService.getForumBySlug(slug);
+        User user = userService.getUserByNickname(thread.getAuthor());
+        Forum forum = forumService.getBySlug(slug);
         if(user == null || forum == null){
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
         thread.setAuthor(user.getNickname());
         thread.setForum(forum.getSlug());
 
-        ServiceAnswer<Thread> serviceAnswer = threadService.createNewThread(thread);
+        ResultPack<Thread> serviceAnswer = threadService.createNewThread(thread);
 
-        if(serviceAnswer.getErrorCode() == Status.DUPLICATE){
+        if(serviceAnswer.getErrorCode() == Status.CONFLICT){
             return ResponseEntity.status(HttpStatus.CONFLICT).body(serviceAnswer.getData());
         }
         return ResponseEntity.status(HttpStatus.CREATED).body(serviceAnswer.getData());
     }
 
 
-    @RequestMapping(path="/{slug}/users", method = RequestMethod.GET)
-    public ResponseEntity getThreadCreators(@PathVariable(name = "slug") String slug,
+    @RequestMapping(path="/api/forum/{slug}/users", method = RequestMethod.GET)
+    public ResponseEntity getThreadCreators(@PathVariable(name = "slug") String slugForum,
                                 @RequestParam(name = "limit", required = false) Integer limit,
                                 @RequestParam(name = "since", required = false) String since,
                                 @RequestParam(name = "desc", required = false) Boolean desc){
-        if(forumService.getForumBySlug(slug) == null){
+        if(forumService.getBySlug(slugForum) == null){
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
 
-        List<User> users = userService.getUsersByForum(slug, limit, since, desc);
+        List<User> users = userInForumService.selectUsersBySlugWithFilter(slugForum, since, limit, desc);
         if(users == null){
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }

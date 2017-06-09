@@ -3,6 +3,10 @@ package app.models;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
 public class User {
     @JsonProperty
     private String about;
@@ -21,6 +25,18 @@ public class User {
         this.fullname = fullname;
         this.about = about;
         this.email = email;
+    }
+
+    public static List<User> parseMap(List<Map<String, Object>> objs) {
+        List<User> u = new ArrayList<>();
+        for(Map<String, Object>row: objs){
+            u.add(new User(
+                row.get("nickname").toString(), row.get("fullname").toString(),
+                row.get("about").toString(), row.get("email").toString()
+            ));
+        }
+
+        return u;
     }
 
     public String getNickname() {
@@ -55,8 +71,8 @@ public class User {
         this.email = email;
     }
 
-    public boolean isNotNull(){
-        return !(nickname == null || fullname == null ||
-                about == null || email == null);
+    public static boolean isIsSet(User user){
+        return !(user.nickname == null || user.fullname == null ||
+                user.about == null || user.email == null);
     }
 }
