@@ -68,6 +68,21 @@ public class ThreadService {
         String checkThreadBySlug = "SELECT id FROM threads WHERE slug = ?;";
 
         String getCount = "SELECT COUNT(*) FROM threads;";
+    
+        String ImplselectBaseByForum = "SELECT * FROM threads WHERE forum = ?";
+        String selectBaseByForumDescWithCreated = ImplselectBaseByForum +
+            " AND created <= ?" +
+            " ORDER BY created DESC LIMIT ?;";
+    
+        String selectBaseByForumDesc = ImplselectBaseByForum +
+            " ORDER BY created DESC LIMIT ?;";
+    
+        String selectBaseByForumWithCreated = ImplselectBaseByForum +
+            " AND created >= ?" +
+            " ORDER BY created LIMIT ?;";
+    
+        String selectBaseByForum = ImplselectBaseByForum +
+            " ORDER BY created LIMIT ?;";
 
         // String updateCreatedAnd
     }
@@ -171,35 +186,28 @@ public class ThreadService {
     }
 
     public List<Thread> getThreadsByForum(String slug, Integer limit, String since, Boolean desc) {
-        StringBuilder queryBuilder = new StringBuilder()
-                .append("SELECT * FROM threads WHERE forum = ? ");
-
         Timestamp time = null;
         if(since != null) {
             String st = ZonedDateTime.parse(since).format(DateTimeFormatter.ISO_INSTANT);
             time = new Timestamp(ZonedDateTime.parse(st).toLocalDateTime().toInstant(ZoneOffset.UTC).toEpochMilli());
         }
 
-        if(desc == null){
+        if(desc == null)
             desc = false;
-        }
 
+        String query;
         if(since != null) {
             if (desc) {
-                queryBuilder.append("AND created <= ? ");
+                query = CommandStatic.selectBaseByForumDescWithCreated;
             } else
-                queryBuilder.append("AND created >= ? ");
+                query = CommandStatic.selectBaseByForumWithCreated;
+        } else {
+            if(desc)
+                query = CommandStatic.selectBaseByForumDesc;
+            else
+                query = CommandStatic.selectBaseByForum;
         }
-
-        if(desc) {
-            queryBuilder.append("ORDER BY created DESC ");
-        } else
-            queryBuilder.append("ORDER BY created ");
-
-        queryBuilder.append("LIMIT ? ;");
-
-        String query = queryBuilder.toString();
-
+        
         ArrayList<Thread> threads = null;
         try {
             List<Map<String, Object>> rows;
@@ -210,6 +218,9 @@ public class ThreadService {
 
             threads = new ArrayList<>();
             for (Map<String, Object> row : rows) {
+                Object slugObj = row.get("slug");
+                String slugStr = (slugObj != null) ? slugObj.toString() : null;
+                
                 threads.add(new Thread(
                     Integer.parseInt(row.get("id").toString()),
                     row.get("title").toString(),
@@ -217,7 +228,7 @@ public class ThreadService {
                     row.get("forum").toString(),
                     row.get("message").toString(),
                     Integer.parseInt(row.get("votes").toString()),
-                    row.get("slug").toString(),
+                    slugStr,
                     Timestamp.valueOf(row.get("created").toString())
                                 .toInstant().atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
                 ));

@@ -247,7 +247,9 @@ public class PostService {
 
     public List<Post> createPosts(List<Post> posts){
         List<Post> newPosts = new ArrayList<>();
-        try(Connection connection = template.getDataSource().getConnection()) {
+        try {
+            Connection connection = template.getDataSource().getConnection();
+            
             PreparedStatement preparedAddPost = generateAddPostStatement(connection);
             PreparedStatement preparedAddUserInForum = userInForumService.generateStatement(connection);
 
@@ -288,23 +290,23 @@ public class PostService {
                 preparedAddPost.close();
                 preparedAddUserInForum.close();
                 
+                connection.close();
+                
                 return null;
             }
             
-            batchManagerService.addPreparedStatement(preparedAddUserInForum);
-            
             preparedAddPost = connection.prepareStatement(CommandStatic.updateCountPostsInForum,
                 Statement.NO_GENERATED_KEYS);
-
             for (Map.Entry<String, Integer> forum : updatedForums.entrySet()){
                 preparedAddPost.setInt(1, forum.getValue());
                 preparedAddPost.setString(2, forum.getKey());
                 preparedAddPost.addBatch();
             }
-            
             MainService.endBatch(preparedAddPost);
+    
+            batchManagerService.addPreparedStatement(connection, preparedAddUserInForum);
         } catch (SQLException e) {
-            e.getNextException().printStackTrace();
+            e.printStackTrace();
             return null;
         }
         return newPosts;
