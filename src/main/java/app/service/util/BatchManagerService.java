@@ -63,9 +63,8 @@ public class BatchManagerService {
                     if (temp != null) {
                         MainService.endBatch(temp.preparedStatement);
                         temp.connection.close();
-                    } else {
+                    } else
                         break;
-                    }
                 }
             } catch (Exception e) {
                 e.printStackTrace();
