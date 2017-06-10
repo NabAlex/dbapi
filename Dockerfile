@@ -1,4 +1,4 @@
-FROM ubuntu:15.10
+FROM ubuntu:16.04
 
 MAINTAINER a.naberezhnyi
 
@@ -26,6 +26,8 @@ RUN /etc/init.d/postgresql start &&\
 RUN echo "host all  all    0.0.0.0/0  md5" >> /etc/postgresql/$PGVER/main/pg_hba.conf
 
 # And add ``listen_addresses`` to ``/etc/postgresql/$PGVER/main/postgresql.conf``
+
+RUN echo "synchronous_commit = off" >> /etc/postgresql/$PGVER/main/postgresql.conf
 RUN echo "listen_addresses='*'" >> /etc/postgresql/$PGVER/main/postgresql.conf
 
 # Expose the PostgreSQL port
@@ -43,7 +45,6 @@ USER root
 
 # Установка JDK
 RUN apt-get install -y openjdk-8-jdk-headless
-RUN /var/lib/dpkg/info/ca-certificates-java.postinst configure
 RUN apt-get install -y maven
 
 # Копируем исходный код в Docker-контейнер
