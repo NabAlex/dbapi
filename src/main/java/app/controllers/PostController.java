@@ -17,61 +17,61 @@ import java.util.Set;
 
 @RestController
 public class PostController {
-
-    final private ForumService forumService;
-    final private ThreadService threadService;
-    final private UserService userService;
-    final private PostService postService;
-
+    
     @Autowired
-    public PostController(ForumService forumService, ThreadService threadService, UserService userService, PostService postService){
-        this.forumService = forumService;
-        this.threadService = threadService;
-        this.userService = userService;
-        this.postService = postService;
-    }
-
+    private ForumService forumService;
+    @Autowired
+    private ThreadService threadService;
+    @Autowired
+    private UserService userService;
+    @Autowired
+    private PostService postService;
+    
     @RequestMapping(path = "/api/post/{id}/details", method = RequestMethod.GET)
     public ResponseEntity detailsPost(@PathVariable(name = "id") int id,
-                                      @RequestParam(name = "related", required = false) Set<String> related){
-
+                                      @RequestParam(name = "related", required = false) Set<String> related) {
+        
         PostFull postFull = new PostFull();
         postFull.setPost(postService.getPostById(id));
-        if(postFull.getPost() == null){
+        if (postFull.getPost() == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
-
-        if(related != null){
-            if(related.contains("user")){
+        
+        if (related != null) {
+            if (related.contains("user")) {
                 postFull.setAuthor(userService.getUserByNickname(postFull.getPost().getAuthor()));
-                if(postFull.getAuthor() == null){
+                
+                if (postFull.getAuthor() == null)
                     return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-                }
+                
             }
-            if(related.contains("forum")){
+            
+            if (related.contains("forum")) {
                 postFull.setForum(forumService.getBySlug(postFull.getPost().getForum()));
-                if(postFull.getForum() == null){
+                
+                if (postFull.getForum() == null)
                     return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-                }
+                    
             }
-            if(related.contains("thread")){
+            if (related.contains("thread")) {
                 postFull.setThread(threadService.getThreadById(postFull.getPost().getThread()));
-                if(postFull.getThread() == null){
+                
+                if (postFull.getThread() == null)
                     return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-                }
+                
             }
         }
         return ResponseEntity.status(HttpStatus.OK).body(postFull);
     }
-
+    
     @RequestMapping(path = "/api/post/{id}/details", method = RequestMethod.POST)
     public ResponseEntity updatePost(@PathVariable(name = "id") int id,
-                                     @RequestBody PostUpdate body){
-
+                                     @RequestBody PostUpdate body) {
+        
         Post post = postService.update(body, id);
-        if(post == null){
+        if (post == null)
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-        }
+            
         return ResponseEntity.ok(post);
     }
 }

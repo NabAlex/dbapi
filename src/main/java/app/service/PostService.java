@@ -240,9 +240,6 @@ public class PostService {
         preparedStatement.setInt(9, post.getId());
         
         preparedStatement.setTimestamp(7, currentTime);
-
-        // template.queryForObject("SELECT insert_users_forum(?::CITEXT,?::CITEXT);", Object.class, post.getForum(), post.getAuthor());
-
         preparedStatement.addBatch();
     }
 
@@ -281,7 +278,6 @@ public class PostService {
                     post.getForum(),
                     post.getAuthor());
 
-                // TODO change
                 if(!updatedForums.containsKey(post.getForum()))
                     updatedForums.put(post.getForum(), 1);
                 else

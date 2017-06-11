@@ -33,10 +33,14 @@ public class Post {
     private String created;
 
     @JsonCreator
-    public Post(@JsonProperty("id") int id, @JsonProperty("parent") int parent,
-                @JsonProperty("author") String author, @JsonProperty("message") String message,
-                @JsonProperty("isEdited") boolean isEdited, @JsonProperty("forum") String forum,
-                @JsonProperty("thread") int thread, @JsonProperty("created") String created){
+    public Post(@JsonProperty("id") int id,
+                @JsonProperty("parent") int parent,
+                @JsonProperty("author") String author,
+                @JsonProperty("message") String message,
+                @JsonProperty("isEdited") boolean isEdited,
+                @JsonProperty("forum") String forum,
+                @JsonProperty("thread") int thread,
+                @JsonProperty("created") String created){
         this.id = id;
         this.parent = parent;
         this.author = author;

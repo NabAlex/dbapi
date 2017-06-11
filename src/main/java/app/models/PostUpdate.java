@@ -9,7 +9,7 @@ public class PostUpdate {
     private String message;
 
     @JsonCreator
-    public PostUpdate(@JsonProperty("message") String message){
+    public PostUpdate(@JsonProperty("message") String message) {
         this.message = message;
     }
 

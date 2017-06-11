@@ -12,13 +12,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping(path = "/api/service")
 public class
 ServiceController {
-
-    final private MainService serviceService;
-
     @Autowired
-    public ServiceController(MainService serviceService){
-        this.serviceService = serviceService;
-    }
+    private MainService serviceService;
 
     @RequestMapping(path = "/clear", method = RequestMethod.POST)
     public ResponseEntity clear() {

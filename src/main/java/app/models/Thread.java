@@ -23,10 +23,14 @@ public class Thread {
     private int id;
 
     @JsonCreator
-    public Thread(@JsonProperty("id") int id, @JsonProperty("title") String title,
-                  @JsonProperty("author") String author, @JsonProperty("forum") String forum,
-                  @JsonProperty("message") String message, @JsonProperty("votes") int votes,
-                  @JsonProperty("slug") String slug, @JsonProperty("created") String created ){
+    public Thread(@JsonProperty("id") int id,
+                  @JsonProperty("title") String title,
+                  @JsonProperty("author") String author,
+                  @JsonProperty("forum") String forum,
+                  @JsonProperty("message") String message,
+                  @JsonProperty("votes") int votes,
+                  @JsonProperty("slug") String slug,
+                  @JsonProperty("created") String created ){
         this.id = id;
         this.title = title;
         this.author = author;
