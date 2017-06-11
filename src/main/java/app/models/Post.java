@@ -1,6 +1,7 @@
 package app.models;
 
 
+import app.util.TimeWork;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -84,11 +85,8 @@ public class Post {
                 Boolean.parseBoolean(row.get("isEdited").toString()),
                 row.get("forum").toString(),
                 Integer.parseInt(row.get("thread_id").toString()),
-                // TODO work time
-                Timestamp.valueOf(row.get("created").toString())
-                    .toInstant().atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-                )
-            );
+                TimeWork.getIsoTime(Timestamp.valueOf(row.get("created").toString()))
+            ));
         }
 
         return p;

@@ -184,13 +184,11 @@ public class ThreadService {
     int getCount() {
         return template.queryForObject(CommandStatic.getCount, Integer.class);
     }
-
+    
     public List<Thread> getThreadsByForum(String slug, Integer limit, String since, Boolean desc) {
         Timestamp time = null;
-        if(since != null) {
-            String st = ZonedDateTime.parse(since).format(DateTimeFormatter.ISO_INSTANT);
-            time = new Timestamp(ZonedDateTime.parse(st).toLocalDateTime().toInstant(ZoneOffset.UTC).toEpochMilli());
-        }
+        if(since != null)
+            time = TimeWork.getTimeStampByUTC(since);
 
         if(desc == null)
             desc = false;
@@ -218,20 +216,7 @@ public class ThreadService {
 
             threads = new ArrayList<>();
             for (Map<String, Object> row : rows) {
-                Object slugObj = row.get("slug");
-                String slugStr = (slugObj != null) ? slugObj.toString() : null;
-                
-                threads.add(new Thread(
-                    Integer.parseInt(row.get("id").toString()),
-                    row.get("title").toString(),
-                    row.get("author").toString(),
-                    row.get("forum").toString(),
-                    row.get("message").toString(),
-                    Integer.parseInt(row.get("votes").toString()),
-                    slugStr,
-                    Timestamp.valueOf(row.get("created").toString())
-                                .toInstant().atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-                ));
+                threads.add(Thread.getThreadByRow(row));
             }
 
             return threads;

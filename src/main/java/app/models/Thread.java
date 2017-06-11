@@ -1,7 +1,11 @@
 package app.models;
 
+import app.util.TimeWork;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.sql.Timestamp;
+import java.util.Map;
 
 
 public class Thread {
@@ -40,7 +44,23 @@ public class Thread {
         this.slug = slug;
         this.created = created;
     }
-
+    
+    public static Thread getThreadByRow(Map<String, Object> row) {
+        Object slugObj = row.get("slug");
+        String slugStr = (slugObj != null) ? slugObj.toString() : null;
+        
+        return new Thread(
+            Integer.parseInt(row.get("id").toString()),
+            row.get("title").toString(),
+            row.get("author").toString(),
+            row.get("forum").toString(),
+            row.get("message").toString(),
+            Integer.parseInt(row.get("votes").toString()),
+            slugStr,
+            TimeWork.getIsoTime( Timestamp.valueOf(row.get("created").toString()) )
+        );
+    }
+    
     public int getId() {
         return id;
     }

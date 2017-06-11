@@ -70,6 +70,9 @@ public class PostService {
             "WHERE t.id = ? " +
             "ORDER BY p.post_path DESC LIMIT ? OFFSET ?;";
 
+        String selectParentPostsDesc = "SELECT id, created FROM posts WHERE thread_id = ? AND parent = 0 ORDER BY id DESC LIMIT ? OFFSET ?;";
+        String selectParentPosts = "SELECT id, created FROM posts WHERE thread_id = ? AND parent = 0 ORDER BY id LIMIT ? OFFSET ?;";
+            ;
         String selectChildPosts = "SELECT p.id, p.parent, p.author, p.message, p.isEdited, p.forum, p.thread_id, p.created FROM posts AS p " +
             "WHERE p.post_path[1] = ? ORDER BY post_path;";
 
@@ -78,6 +81,9 @@ public class PostService {
 
         String update = "UPDATE posts SET isEdited = true, message=? WHERE id=?;";
         String getCount = "SELECT COUNT(*) FROM posts;";
+        
+        String requestForGetCurrentTime = "SELECT current_timestamp";
+        String getDBNextValSeq = "SELECT nextval('posts_id_seq')";
         
         String updateCountPostsInForum = "UPDATE forums SET posts=posts+? WHERE slug=?;";
     }
@@ -95,6 +101,10 @@ public class PostService {
     }
     public void truncateTable() {
         template.execute(CommandStatic.truncateTable);
+    }
+    
+    public int getCount() {
+        return template.queryForObject(CommandStatic.getCount, Integer.class);
     }
     
     public Post getPostById(int id) {
@@ -146,7 +156,6 @@ public class PostService {
     }
 
     private PostWithMarker treeSort(int threadId, Integer limit, Integer offset, Boolean desc) {
-        // was changes
         List<Post> posts = null;
         try {
             List<Map<String, Object>> rows;
@@ -174,9 +183,9 @@ public class PostService {
         try {
             List<Map<String, Object>> parents;
             if(desc)
-                parents = template.queryForList("SELECT id, created FROM posts WHERE thread_id = ? AND parent = 0 ORDER BY id DESC LIMIT ? OFFSET ?;", threadId, limit, offset);
+                parents = template.queryForList(CommandStatic.selectParentPostsDesc, threadId, limit, offset);
             else
-                parents = template.queryForList("SELECT id, created FROM posts WHERE thread_id = ? AND parent = 0 ORDER BY id LIMIT ? OFFSET ?;", threadId, limit, offset);
+                parents = template.queryForList(CommandStatic.selectParentPosts, threadId, limit, offset);
 
             sizeParents = parents.size();
             List<Post.PostId> postIds = Post.parseMapId(parents);
@@ -191,7 +200,6 @@ public class PostService {
 
             for(Post.PostId parentPost : postIds) {
                 int idParent = parentPost.getId();
-                // ???
                 List<Post> childPost = Post.parseMap( template.queryForList(queryChooseChild, idParent) );
                 for(Post child : childPost) {
                     posts.add(child);
@@ -255,23 +263,23 @@ public class PostService {
             Integer seq;
             Timestamp currentTime = null;
             String time = null;
+            
             if(posts.get(0).getCreated() == null){
-                currentTime = template.queryForObject("SELECT current_timestamp;", Timestamp.class);
-                time = currentTime.toInstant().atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+                currentTime = template.queryForObject(CommandStatic.requestForGetCurrentTime, Timestamp.class);
+                time = TimeWork.getIsoTime(currentTime);
             }
 
             for (Post post: posts) {
-                seq = template.queryForObject("SELECT nextval('posts_id_seq');", Integer.class);
+                seq = template.queryForObject(CommandStatic.getDBNextValSeq, Integer.class);
 
-                Timestamp nowTime = null;
+                Timestamp nowTime;
                 
                 post.setId(seq);
                 if(post.getCreated() == null) {
                     post.setCreated(time);
                     nowTime = currentTime;
-                } else {
-                    nowTime = new Timestamp(ZonedDateTime.parse(post.getCreated()).toInstant().toEpochMilli());
-                }
+                } else
+                    nowTime = TimeWork.getTimeStampByUTC(post.getCreated());
 
                 this.addPostBatch(preparedAddPost, post, nowTime);
                 userInForumService.addBatch(preparedAddUserInForum,
@@ -289,7 +297,7 @@ public class PostService {
             try {
                 MainService.endBatch(preparedAddPost);
             } catch (SQLException e) {
-                /* if no author */
+                /* if wrong author */
                 preparedAddPost.close();
                 preparedAddUserInForum.close();
                 
@@ -313,10 +321,6 @@ public class PostService {
             return null;
         }
         return newPosts;
-    }
-
-    public int getCount() {
-        return template.queryForObject(CommandStatic.getCount, Integer.class);
     }
 
     private final RowMapper<Post> postMapper = (rs, num) ->
