@@ -238,7 +238,8 @@ public class PostService {
 
         preparedStatement.setInt(8, post.getParent());
         preparedStatement.setInt(9, post.getId());
-        preparedStatement.setTimestamp(7, new Timestamp(ZonedDateTime.parse(post.getCreated()).toInstant().toEpochMilli()));
+        
+        preparedStatement.setTimestamp(7, currentTime);
 
         // template.queryForObject("SELECT insert_users_forum(?::CITEXT,?::CITEXT);", Object.class, post.getForum(), post.getAuthor());
 
@@ -265,11 +266,17 @@ public class PostService {
             for (Post post: posts) {
                 seq = template.queryForObject("SELECT nextval('posts_id_seq');", Integer.class);
 
+                Timestamp nowTime = null;
+                
                 post.setId(seq);
-                if(post.getCreated() == null)
+                if(post.getCreated() == null) {
                     post.setCreated(time);
+                    nowTime = currentTime;
+                } else {
+                    nowTime = new Timestamp(ZonedDateTime.parse(post.getCreated()).toInstant().toEpochMilli());
+                }
 
-                this.addPostBatch(preparedAddPost, post, currentTime);
+                this.addPostBatch(preparedAddPost, post, nowTime);
                 userInForumService.addBatch(preparedAddUserInForum,
                     post.getForum(),
                     post.getAuthor());
